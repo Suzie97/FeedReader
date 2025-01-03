@@ -5,8 +5,8 @@ supported_backend_plugins = [
   'fresh',
   'inoreader',
   'local',
-  'owncloud',
-  'ttrss'
+  # 'owncloud',
+  # 'ttrss'
 ]
 backend_plugins = get_option('backend-plugins')
 

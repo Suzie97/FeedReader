@@ -42,21 +42,15 @@ public class FeedbinAPI : Object {
 		{
 			m_session.user_agent = user_agent;
 		}
-
-		m_session.authenticate.connect(authenticate);
 	}
 
-	~FeedbinAPI()
-	{
-		m_session.authenticate.disconnect(authenticate);
-	}
-
-	private void authenticate(Soup.Message msg, Soup.Auth auth, bool retrying)
-	{
-		if(!retrying)
-		{
-			auth.authenticate(this.username, this.password);
+	private bool authenticate (Soup.Auth auth, bool retrying) {
+		if (!retrying) {
+			auth.authenticate (this.username, this.password);
+			return true;
 		}
+
+		return false;
 	}
 
 	private Soup.Message request(string method, string last_part, string? input = null) throws FeedbinError
@@ -68,35 +62,34 @@ public class FeedbinAPI : Object {
 		var path = m_base_uri + last_part;
 		var message = new Soup.Message(method, path);
 
-		if(method == "POST")
-		{
+		message.authenticate.connect (authenticate);
+
+		if (method == "POST") {
 			message.request_headers.append("Content-Type", "application/json; charset=utf-8");
 		}
 
-		if(input != null)
-		{
-			message.request_body.append_take(input.data);
+		if (input != null) {
+			message.set_request_body_from_bytes ("application/x-www-form-urlencoded", new Bytes(input.data));
 		}
 
-		m_session.send_and_read(message);
-		var status = message.status_code;
-		if(status < 200 || status >= 400)
-		{
-			switch(status)
-			{
-				case Soup.Status.CANT_RESOLVE:
-				case Soup.Status.CANT_RESOLVE_PROXY:
-				case Soup.Status.CANT_CONNECT:
-				case Soup.Status.CANT_CONNECT_PROXY:
-				throw new FeedbinError.NO_CONNECTION(@"Connection to $m_base_uri failed");
-				case Soup.Status.UNAUTHORIZED:
-				throw new FeedbinError.NOT_AUTHORIZED(@"Not authorized to $method $path");
-				case Soup.Status.NOT_FOUND:
-				throw new FeedbinError.NOT_FOUND(@"$method $path not found");
-			}
-			string phrase = Soup.Status.get_phrase(status);
-			throw new FeedbinError.UNKNOWN_ERROR(@"Unexpected status $status ($phrase) for $method $path");
+        try {
+		    m_session.send_and_read(message);
+		    var status = message.status_code;
+
+		    if (status < 200 || status >= 400) {
+			    switch (status) {
+			    case Soup.Status.UNAUTHORIZED:
+				    throw new FeedbinError.NOT_AUTHORIZED(@"Not authorized to $method $path");
+			    case Soup.Status.NOT_FOUND:
+				    throw new FeedbinError.NOT_FOUND(@"$method $path not found");
+			    }
+			    string phrase = Soup.Status.get_phrase(status);
+			    throw new FeedbinError.UNKNOWN_ERROR(@"Unexpected status $status ($phrase) for $method $path");
+		    }
+		} catch (Error e) {
+		    throw new FeedbinError.NO_CONNECTION(@"Connection to $m_base_uri failed");
 		}
+
 		return message;
 	}
 
@@ -138,22 +131,21 @@ public class FeedbinAPI : Object {
 	private static Json.Node parse_json(Soup.Message response) throws FeedbinError
 	{
 		var method = response.method;
-		var uri = response.uri.to_string(false);
+		var uri = response.uri.to_string();
 		string content = (string)response.response_body.flatten().data;
-		if(content == null)
-		{
+
+		if (content == null) {
 			throw new FeedbinError.INVALID_FORMAT(@"$method $uri returned no content but expected JSON");
 		}
 
 		var parser = new Json.Parser();
-		try
-		{
+
+		try {
 			parser.load_from_data(content, -1);
-		}
-		catch (Error e)
-		{
+		} catch (Error e) {
 			throw new FeedbinError.INVALID_FORMAT(@"$method $uri returned invalid JSON: " + e.message + "\nContent is: $content");
 		}
+
 		return parser.get_root();
 	}
 
